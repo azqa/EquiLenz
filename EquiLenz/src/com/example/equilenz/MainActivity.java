@@ -1,10 +1,15 @@
 package com.example.equilenz;
 
+import java.util.ArrayList;
 import java.util.List;
 
+
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -20,6 +25,7 @@ import android.widget.Toast;
 
 
 public class MainActivity extends Activity {
+
 
 	private static final int ACTION_TAKE_PHOTO_S = 1;
 	//keep track of cropping intent
@@ -77,15 +83,13 @@ public class MainActivity extends Activity {
 				MediaStore.ACTION_IMAGE_CAPTURE
 		);
 
-		
-		
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.FROYO) {
 			new FroyoAlbumDirFactory();
 		} else {
 			new BaseAlbumDirFactory();
 		}
 	}
-
+	
 	@Override
 	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 		switch (requestCode) {
@@ -95,7 +99,7 @@ public class MainActivity extends Activity {
 				//handleSmallCameraPhoto(data);
 				picUri = data.getData();
     			//carry out the crop operation
-    			performCrop();
+    			doCrop();
 			}
 			break;
 		} // ACTION_TAKE_PHOTO_S
@@ -107,7 +111,7 @@ public class MainActivity extends Activity {
 			//get the cropped bitmap
 			//Bitmap thePic = extras.getParcelable("data");
 			mImageBitmap = (Bitmap) extras.get("data");
-
+			mImageBitmap= Invert(mImageBitmap);
 			mImageView.setImageBitmap(mImageBitmap);
 			mImageView.setVisibility(View.VISIBLE);
 			//retrieve a reference to the ImageView
@@ -118,7 +122,7 @@ public class MainActivity extends Activity {
 		
 		} // switch
 	}
-	 private void performCrop(){
+	/* private void performCrop(){
 	    	//take care of exceptions
 	    	try {
 	    		//call the standard crop action intent (the user device may not support it)
@@ -142,7 +146,118 @@ public class MainActivity extends Activity {
 	    		Toast toast = Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT);
 	    		toast.show();
 	    	}
-	    }
+	    }*/
+	
+	public Bitmap Invert(Bitmap image) {
+		 
+        //size of input image
+        int width = image.getWidth();
+        int height = image.getHeight();
+ 
+        int[] pixels = new int[width*height];
+        int index = 0;
+        image.getPixels(pixels, 0, width, 0, 0, width, height);
+        Bitmap returnBitmap = Bitmap.createBitmap(width, height,
+                Bitmap.Config.ARGB_8888);
+        int A,R,G,B;
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                //A = (pixels[index] >> 24) & 0xFF;
+                R = (pixels[index] >> 16) & 0xFF;
+                G = (pixels[index] >> 8) & 0xFF;
+                B = pixels[index] & 0xFF;
+
+                //A+=intensity;
+                B=255-B;
+                G=255-G;
+                R=255-R;
+                if(R > 255) { R = 255; }
+                else if(R < 0) { R = 0; }
+
+                if(G > 255) { G = 255; }
+                else if(G < 0) { G = 0; }
+
+                if(B > 255) { B = 255; }
+                else if(B < 0) { B = 0; }
+                
+                pixels[index] = 0xff000000 | (R << 16) | (G << 8) | B;
+                                ++index;
+                 }
+        }
+        returnBitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+        return returnBitmap;
+	}
+	   private void doCrop() {
+			final ArrayList<CropOption> cropOptions = new ArrayList<CropOption>();
+	    	
+	    	Intent intent = new Intent("com.android.camera.action.CROP");
+	        intent.setType("image/*");
+	        
+	        List<ResolveInfo> list = getPackageManager().queryIntentActivities( intent, 0 );
+	        
+	        int size = list.size();
+	        
+	        if (size == 0) {	        
+	        	Toast.makeText(this, "Can not find image crop app", Toast.LENGTH_SHORT).show();
+	        	
+	            return;
+	        } else {
+	        	intent.setData(picUri);
+	            
+	            intent.putExtra("outputX", 200);
+	            intent.putExtra("outputY", 200);
+	    
+	            intent.putExtra("scale", true);
+	            intent.putExtra("return-data", true);
+	            
+	        	if (size == 1) {
+	        		Intent i 		= new Intent(intent);
+		        	ResolveInfo res	= list.get(0);
+		        	
+		        	i.setComponent( new ComponentName(res.activityInfo.packageName, res.activityInfo.name));
+		        	
+		        	startActivityForResult(i, PIC_CROP);
+	        	} else {
+			        for (ResolveInfo res : list) {
+			        	final CropOption co = new CropOption();
+			        	
+			        	co.title 	= getPackageManager().getApplicationLabel(res.activityInfo.applicationInfo);
+			        	co.icon		= getPackageManager().getApplicationIcon(res.activityInfo.applicationInfo);
+			        	co.appIntent= new Intent(intent);
+			        	
+			        	co.appIntent.setComponent( new ComponentName(res.activityInfo.packageName, res.activityInfo.name));
+			        	
+			            cropOptions.add(co);
+			        }
+		        
+			        CropOptionAdapter adapter = new CropOptionAdapter(getApplicationContext(), cropOptions);
+			        
+			        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+			        builder.setTitle("Choose Crop App");
+			        
+			        builder.setAdapter( adapter, new DialogInterface.OnClickListener() {
+			            public void onClick( DialogInterface dialog, int item ) {
+			                startActivityForResult( cropOptions.get(item).appIntent, PIC_CROP);
+			                
+			            }
+			        });
+		        
+			        builder.setOnCancelListener( new DialogInterface.OnCancelListener() {
+			            @Override
+			            public void onCancel( DialogInterface dialog ) {
+			               
+			                if (picUri != null ) {
+			                    getContentResolver().delete(picUri, null, null );
+			                    picUri = null;
+			                }
+			            }
+			        } );
+			        
+			        AlertDialog alert = builder.create();
+			        alert.show();
+	        	}
+	        }
+		} 
 
 	// Some lifecycle callbacks so that the image can survive orientation change
 	@Override
